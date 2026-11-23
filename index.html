@@ -500,8 +500,13 @@ function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  a.style.position = "fixed"; a.style.left = "0"; a.style.top = "0";
+  a.style.width = "1px"; a.style.height = "1px"; a.style.opacity = "0";
+  a.textContent = filename;
+  document.body.appendChild(a);
+  /* Dùng MouseEvent thay cho a.click() để một số trình duyệt nhận diện tốt hơn */
+  a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 5000);
 }
 
 async function exportToday() {
