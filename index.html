@@ -232,9 +232,9 @@ function minutesSG() {
   return ((h % 24) * 60) + m; /* %24: chống giờ "24" ở một số trình duyệt */
 }
 function parseISO(s) { const a = s.split("-").map(Number); return new Date(Date.UTC(a[0], a[1] - 1, a[2])); }
-/* Số serial Excel cho ngày YYYY-MM-DD (hệ 1900, mốc 1899-12-30).
-   Ghi số serial trực tiếp thay cho đối tượng Date để tránh lỗi chuyển đổi ngày của ExcelJS trên trình duyệt. */
-function dateToSerial(s) { const a = s.split("-").map(Number); return Math.round((Date.UTC(a[0], a[1] - 1, a[2]) - Date.UTC(1899, 11, 30)) / 86400000); }
+/* Ngày dạng chữ tiếng Việt cho ô A2, ví dụ "Thứ Ba ngày 24 tháng 11 năm 2026".
+   Ghi dạng chữ thay cho ngày/serial để tránh lỗi chuyển đổi ngày của ExcelJS trên trình duyệt. */
+function formatDateVN(iso) { const a = iso.split("-"); return weekdayOf(iso) + " ngày " + parseInt(a[2], 10) + " tháng " + parseInt(a[1], 10) + " năm " + a[0]; }
 function weekdayOf(iso) { return WEEKDAYS[parseISO(iso).getUTCDay()]; }
 function isWeekend(iso) { const d = parseISO(iso).getUTCDay(); return d === 0 || d === 6; }
 function fmtDMY(iso) { const a = iso.split("-"); return a[2] + "/" + a[1] + "/" + a[0]; }
@@ -463,9 +463,9 @@ async function buildExcelBuffer(dateStr, data) {
   await wb.xlsx.load(b64ToBuffer(TEMPLATE_B64));
   const ws = wb.getWorksheet("KD");
 
-  /* Ngày vào A2 (ghi số serial, giữ định dạng ngày của mẫu). */
+  /* Ngày vào A2 (dạng chữ tiếng Việt, giữ nguyên định dạng ô của mẫu). */
   const a2 = ws.getCell("A2");
-  a2.value = dateToSerial(dateStr);
+  a2.value = formatDateVN(dateStr);
 
   /* Sửa lỗi mẫu: D37 =B37-E36 → =B37-E37. */
   ws.getCell("D37").value = { formula: "B37-E37" };
