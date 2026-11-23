@@ -216,6 +216,7 @@ const CLASSES = [
 ];
 
 const START_DATE = "2026-11-24";   /* ngày bắt đầu hệ thống */
+const SIMULATE_DATE = "2026-11-24"; /* TEST: coi hôm nay là 24/11 để thầy thử trôi chảy không. Đặt null khi hết thử. */
 const OPEN_MIN = 300;              /* 5:00 sáng */
 const LOCK_MIN = 490;              /* 8:10 sáng */
 const WEEKDAYS = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"];
@@ -224,7 +225,7 @@ const WEEKDAYS = ["Chủ nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ N
 const fmtDateSG = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Saigon", year: "numeric", month: "2-digit", day: "2-digit" });
 const fmtTimeSG = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Saigon", hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
 
-function todaySG() { return fmtDateSG.format(new Date()); } /* "YYYY-MM-DD" */
+function todaySG() { if (SIMULATE_DATE) return SIMULATE_DATE; return fmtDateSG.format(new Date()); } /* "YYYY-MM-DD" */
 function minutesSG() {
   const parts = fmtTimeSG.formatToParts(new Date());
   let h = 0, m = 0;
@@ -434,7 +435,11 @@ function refreshClock() {
     loadDayIntoForm();
   }
 
-  if (mins < OPEN_MIN) {
+  /* Ngày đầu tiên (24/11): mở nhập cả ngày để thầy làm quen, từ ngày sau trở đi khóa 5:00–8:10 như đã chốt. */
+  if (today === START_DATE) {
+    formOpen = true; setFormEnabled(true);
+    clearNotice();
+  } else if (mins < OPEN_MIN) {
     formOpen = false; setFormEnabled(false);
     showNotice("Chưa tới giờ nhập — mở lúc 5:00 sáng.", "info");
   } else if (mins > LOCK_MIN) {
