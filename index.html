@@ -66,6 +66,8 @@
   .btn:active{transform:translateY(1px)}
   .btn-export{background:linear-gradient(100deg,#1b7fd4,#2f9e4f);color:#ffffff;font-size:16px;flex:1 1 200px}
   .btn-export:disabled{opacity:.55;cursor:wait}
+  .btn-submit{background:#2f9e4f;color:#ffffff;font-size:16.5px;font-weight:800;flex:1 1 220px;box-shadow:0 2px 6px rgba(31,110,55,.25),0 10px 24px rgba(31,110,55,.22)}
+  .btn-submit:disabled{opacity:.55;cursor:wait}
   .saved-note{font-size:12.5px;color:var(--ink2);margin:8px 2px 0;min-height:1.2em}
 
   .tcbar{margin:16px 0 4px;background:var(--gold-soft);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;display:flex;flex-wrap:wrap;gap:6px 22px;align-items:baseline}
@@ -197,6 +199,7 @@
   <main id="blocks"></main>
 
   <div class="bottom-actions">
+    <button class="btn btn-submit" id="btnSubmit" type="button">✓ Nộp điểm danh</button>
     <button class="btn btn-export" id="btnExportBottom" type="button">⬇ Xuất file Excel</button>
     <div class="hist-wrap">
       <button class="btn btn-history" type="button" aria-haspopup="true" aria-expanded="false">Tải lịch sử ▾</button>
@@ -359,6 +362,59 @@ function syncToApi(){
     });
   }, 500);
 }
+/* ===== Nộp điểm danh: gửi lại toàn bộ lớp đã nhập của hôm nay lên Sheet chung ===== */
+var SUBMITTED_PREFIX = "kiemdien-da-nop-"; /* khóa giờ nộp theo ngày: kiemdien-da-nop-YYYY-MM-DD */
+function collectStats(data){
+  var rows = Object.keys(data), vang = 0, vangbt = 0;
+  rows.forEach(function(r){
+    vang += parseInt(data[r].e, 10) || 0;
+    vangbt += parseInt(data[r].i, 10) || 0;
+  });
+  return { count: rows.length, vang: vang, vangbt: vangbt };
+}
+/* Dòng trạng thái đã nộp của ngày hiện tại (rỗng nếu hôm nay chưa nộp) */
+function submittedNoteText(){
+  try {
+    var t = localStorage.getItem(SUBMITTED_PREFIX + currentDate);
+    if (!t) return "";
+    var s = collectStats(collect());
+    return "Đã nộp điểm danh lúc " + t + " — " + s.count + "/32 lớp, vắng " + s.vang + " em.";
+  } catch(e){ return ""; }
+}
+var submitting = false;
+function submitAttendance(){
+  if (submitting || !currentDate) return;
+  var btn = document.getElementById("btnSubmit");
+  submitting = true;
+  btn.disabled = true;
+  btn.textContent = "Đang nộp…";
+  saveDraftNow(); /* lưu nháp ngay trên máy này trước khi gửi */
+  var data = collect();
+  /* Gửi lại tất cả lớp đã nhập, kể cả lớp đã tự đồng bộ trước đó, để Sheet chắc chắn có bản mới nhất */
+  var jobs = Object.keys(data).map(function(r){
+    return apiPost(currentDate, ROW_TO_LOP[r], data[r]);
+  });
+  Promise.all(jobs).then(function(results){
+    submitting = false;
+    btn.disabled = false;
+    btn.textContent = "✓ Nộp điểm danh";
+    var ok = results.every(function(x){ return x; });
+    if (!ok){
+      toast("Nộp chưa xong — kiểm tra mạng rồi bấm Nộp lại.");
+      return;
+    }
+    lastSynced = JSON.parse(JSON.stringify(data));
+    var s = collectStats(data);
+    var d = new Date();
+    var timeStr = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+    try { localStorage.setItem(SUBMITTED_PREFIX + currentDate, timeStr); } catch(e){}
+    var pd = parseDateStr(currentDate);
+    toast("Đã nộp điểm danh ngày " + pad(pd.getDate()) + "/" + pad(pd.getMonth() + 1) + "/" + pd.getFullYear()
+      + " — " + s.count + "/32 lớp, vắng " + s.vang + " em (bán trú: " + s.vangbt + " em).");
+    $saved.textContent = "Đã nộp điểm danh lúc " + timeStr + " — " + s.count + "/32 lớp, vắng " + s.vang + " em.";
+  });
+}
+
 /* Dữ liệu lịch sử 1 ngày: ưu tiên Sheet chung, không có thì lấy localStorage */
 function getHistoryDataAsync(dateStr){
   return apiGet(dateStr).then(function(apiData){
@@ -602,6 +658,8 @@ function loadDraft(){
   if (!has) saveDraftNow();
   $saved.textContent = has ? "Đã mở lại dữ liệu đã nhập của ngày này trên máy này." : "";
   recalc();
+  var subNote = submittedNoteText();
+  if (subNote) $saved.textContent = subNote;
   /* Nạp thêm dữ liệu chung từ Sheet: chỉ điền vào lớp mà máy này đang để trống hoàn toàn, không ghi đè dữ liệu máy này đã nhập */
   apiGet(currentDate).then(function(apiData){
     var conv = apiToCollect(apiData);
@@ -622,6 +680,8 @@ function loadDraft(){
         $saved.textContent = "Đã đồng bộ dữ liệu chung từ Sheet.";
         recalc();
       }
+      var sn = submittedNoteText();
+      if (sn) $saved.textContent = sn;
     }
     syncToApi();
   });
@@ -823,6 +883,7 @@ document.addEventListener("click", function(ev){
 document.addEventListener("keydown", function(ev){ if (ev.key === "Escape") closeAllHistMenus(); });
 
 document.getElementById("btnExportBottom").addEventListener("click", exportExcel);
+document.getElementById("btnSubmit").addEventListener("click", submitAttendance);
 
 /* Ô chọn lớp xổ xuống: nhóm theo khối, chọn 1 lớp hoặc xem tất cả */
 function buildPicker(){
