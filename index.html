@@ -216,7 +216,7 @@
   </div>
 
   <footer class="note">
-    <p><b>Cách tính:</b> Hiện diện (HD) = Sĩ số − Vắng; Hiện diện bán trú = Bán trú TS − Vắng bán trú. Lớp chưa nhập thì mặc định vắng 0 — khi xuất Excel, ô số vắng ghi 0 và ô tên học sinh vắng ghi dấu “/” canh giữa; khi bấm Nộp điểm danh, lớp chưa nhập cũng được gửi lên Sheet chung với vắng 0. Trang đang mở cho ngày <b>Thứ Ba, 24/11/2026</b> — ngày đầu tiên nên form mở nhập <b>cả ngày</b>, không khóa giờ 5:00–8:10; thầy chọn lớp, nhập xong bấm Xuất file Excel để tải file “KIỂM DIỆN 24.11.xlsx”. Dữ liệu nhập được lưu theo từng ngày ngay trên trình duyệt của máy đang dùng (nhập trên máy nào thì lịch sử nằm ở máy đó, không đồng bộ sang máy khác): sang ngày mới form bắt đầu trống để nhập ngày mới, còn dữ liệu các ngày trước vẫn giữ trong lịch sử — bấm <b>Tải lịch sử</b> để tải lại file Excel từng ngày, từ đầu tháng đến hôm nay, trọn tháng, hoặc một ngày cụ thể. Tên file theo mẫu “KIỂM DIỆN 24.11.xlsx” — dùng dấu chấm thay dấu “/” vì tên file không dùng được dấu “/”.</p>
+    <p><b>Cách tính:</b> Hiện diện (HD) = Sĩ số − Vắng; Hiện diện bán trú = Bán trú TS − Vắng bán trú. Lớp chưa nhập thì mặc định vắng 0 — khi xuất Excel, ô số vắng ghi 0 và ô tên học sinh vắng ghi dấu “/” canh giữa; khi bấm Nộp điểm danh, lớp chưa nhập cũng được gửi lên Sheet chung với vắng 0. Form mở nhập 5:00–8:10 mỗi ngày đi học, ngày theo ngày thật; thầy chọn lớp, nhập xong bấm Xuất file Excel để tải file “KIỂM DIỆN DD.MM.xlsx” theo ngày thật. Dữ liệu nhập được lưu theo từng ngày ngay trên trình duyệt của máy đang dùng (nhập trên máy nào thì lịch sử nằm ở máy đó, không đồng bộ sang máy khác): sang ngày mới form bắt đầu trống để nhập ngày mới, còn dữ liệu các ngày trước vẫn giữ trong lịch sử — bấm <b>Tải lịch sử</b> để tải lại file Excel từng ngày, từ đầu tháng đến hôm nay, trọn tháng, hoặc một ngày cụ thể. Tên file theo mẫu “KIỂM DIỆN DD.MM.xlsx” — dùng dấu chấm thay dấu “/” vì tên file không dùng được dấu “/”.</p>
   </footer>
 </div>
 
@@ -287,10 +287,9 @@ function parseDateStr(s){ var p=s.split("-"); return new Date(+p[0], +p[1]-1, +p
 var THU = ["Chủ nhật","Thứ hai","Thứ ba","Thứ tư","Thứ năm","Thứ sáu","Thứ bảy"];
 var THU_TITLE = ["Chủ nhật","Thứ Hai","Thứ Ba","Thứ Tư","Thứ Năm","Thứ Sáu","Thứ Bảy"];
 var START_STR = "2026-11-24";
-/* CHẾ ĐỘ THỬ 24/11: coi hôm nay là Thứ Ba 24/11/2026 và mở nhập CẢ NGÀY (không khóa 5:00–8:10).
-   Bật để thầy thử trôi chảy ngay từ tối 23/11; dữ liệu nhập thử lưu đúng vào ngày 24/11.
-   Tắt chế độ này (đặt TEST_MODE = false) thì web trở lại chạy theo ngày/giờ thật. */
-var TEST_MODE = true;
+/* CHẾ ĐỘ THỬ 24/11 (đã tắt tối 24/11): khi bật, coi hôm nay là Thứ Ba 24/11/2026 và mở nhập CẢ NGÀY (không khóa 5:00–8:10).
+   Đã tắt (TEST_MODE = false) nên web trở lại chạy theo ngày/giờ thật. */
+var TEST_MODE = false;
 var TEST_TODAY_STR = "2026-11-24"; /* Thứ Ba */
 var DRAFT_KEY = "kiemdien-nhap-hien-tai"; /* khóa nháp đơn cũ — chỉ còn dùng để chuyển sang lịch sử khi nâng cấp */
 var HISTORY_PREFIX = "kiemdien-lich-su-"; /* khóa lịch sử theo ngày: kiemdien-lich-su-YYYY-MM-DD */
