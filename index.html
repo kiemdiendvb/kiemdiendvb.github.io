@@ -334,6 +334,19 @@ function apiPost(dateStr, lop, rec){
       .catch(function(){ return false; });
   }).catch(function(){ return false; });
 }
+/* Gửi nhiều lớp của 1 ngày trong 1 yêu cầu duy nhất (dùng cho nút Nộp điểm danh);
+   rows: [{lop, v, n, vb, nb}, ...]; chỉ trả true khi máy chủ xác nhận ok; không throw khi lỗi */
+function apiPostBatch(dateStr, rows){
+  return apiFetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ date: dateStr, rows: rows })
+  }).then(function(r){
+    if (!r.ok) return false; /* lỗi máy chủ (500...) cũng coi là gửi lỗi */
+    return r.json().then(function(j){ return !!(j && j.ok === true); })
+      .catch(function(){ return false; });
+  }).catch(function(){ return false; });
+}
 function apiNumStr(v){ return (v === null || v === undefined) ? "" : String(v); }
 /* Chuyển dữ liệu API {lop:{v,n,vb,nb}} sang dạng collect() {row:{e,f,i,j}}; bỏ qua dòng trống hoàn toàn; "0" thành "" */
 function apiToCollect(apiData){
@@ -424,29 +437,19 @@ function submitAttendance(){
   btn.textContent = "Đang nộp…";
   saveDraftNow(); /* lưu nháp ngay trên máy này trước khi gửi */
   var data = collect();
-  /* Gửi đủ cả 32 lớp: lớp đã nhập gửi lại dữ liệu đã nhập, kể cả lớp đã tự đồng bộ trước đó,
-     để Sheet chắc chắn có bản mới nhất; lớp chưa nhập gì cả thì gửi vắng 0 (v=0, vb=0, tên trống).
+  /* Gửi đủ cả 32 lớp trong 1 yêu cầu duy nhất (apiPostBatch): lớp đã nhập gửi lại dữ liệu đã nhập,
+     kể cả lớp đã tự đồng bộ trước đó, để Sheet chắc chắn có bản mới nhất; lớp chưa nhập gì cả
+     thì gửi vắng 0 (v=0, vb=0, tên trống).
      Tóm tắt bên dưới vẫn chỉ đếm lớp có dữ liệu thật (collectStats trên data của collect()). */
-  /* Gửi theo từng đợt 5 lớp (đợt sau chờ đợt trước xong) thay vì 32 cùng lúc,
-     để không vượt giới hạn xử lý đồng thời của Apps Script */
-  var BATCH_SIZE = 5;
-  var submitAll = Promise.resolve([]);
-  for (var b = 0; b < ALL.length; b += BATCH_SIZE){
-    (function(batch){
-      submitAll = submitAll.then(function(prev){
-        var jobs = batch.map(function(c){
-          var rec = data[c.row];
-          return apiPost(currentDate, c.lop, rec || { e:"0", f:"", i:"0", j:"" });
-        });
-        return Promise.all(jobs).then(function(res){ return prev.concat(res); });
-      });
-    })(ALL.slice(b, b + BATCH_SIZE));
-  }
-  submitAll.then(function(results){
+  var rows = ALL.map(function(c){
+    var rec = data[c.row];
+    if (!rec) return { lop: c.lop, v: "0", n: "", vb: "0", nb: "" };
+    return { lop: c.lop, v: rec.e || "", n: rec.f || "", vb: rec.i || "", nb: rec.j || "" };
+  });
+  apiPostBatch(currentDate, rows).then(function(ok){
     submitting = false;
     btn.disabled = false;
     btn.textContent = "✓ Nộp điểm danh";
-    var ok = results.every(function(x){ return x; });
     if (!ok){
       toast("Nộp chưa xong — kiểm tra mạng rồi bấm Nộp lại.");
       return;
