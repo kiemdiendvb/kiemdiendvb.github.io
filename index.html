@@ -216,7 +216,7 @@
   </div>
 
   <footer class="note">
-    <p><b>Cách tính:</b> Hiện diện (HD) = Sĩ số − Vắng; Hiện diện bán trú = Bán trú TS − Vắng bán trú. Lớp chưa nhập thì mặc định vắng 0 — khi xuất Excel, ô số vắng để trống và ô tên học sinh vắng ghi dấu “/” canh giữa. Trang đang mở cho ngày <b>Thứ Ba, 24/11/2026</b> — ngày đầu tiên nên form mở nhập <b>cả ngày</b>, không khóa giờ 5:00–8:10; thầy chọn lớp, nhập xong bấm Xuất file Excel để tải file “KIỂM DIỆN 24.11.xlsx”. Dữ liệu nhập được lưu theo từng ngày ngay trên trình duyệt của máy đang dùng (nhập trên máy nào thì lịch sử nằm ở máy đó, không đồng bộ sang máy khác): sang ngày mới form bắt đầu trống để nhập ngày mới, còn dữ liệu các ngày trước vẫn giữ trong lịch sử — bấm <b>Tải lịch sử</b> để tải lại file Excel từng ngày, từ đầu tháng đến hôm nay, trọn tháng, hoặc một ngày cụ thể. Tên file theo mẫu “KIỂM DIỆN 24.11.xlsx” — dùng dấu chấm thay dấu “/” vì tên file không dùng được dấu “/”.</p>
+    <p><b>Cách tính:</b> Hiện diện (HD) = Sĩ số − Vắng; Hiện diện bán trú = Bán trú TS − Vắng bán trú. Lớp chưa nhập thì mặc định vắng 0 — khi xuất Excel, ô số vắng ghi 0 và ô tên học sinh vắng ghi dấu “/” canh giữa; khi bấm Nộp điểm danh, lớp chưa nhập cũng được gửi lên Sheet chung với vắng 0. Trang đang mở cho ngày <b>Thứ Ba, 24/11/2026</b> — ngày đầu tiên nên form mở nhập <b>cả ngày</b>, không khóa giờ 5:00–8:10; thầy chọn lớp, nhập xong bấm Xuất file Excel để tải file “KIỂM DIỆN 24.11.xlsx”. Dữ liệu nhập được lưu theo từng ngày ngay trên trình duyệt của máy đang dùng (nhập trên máy nào thì lịch sử nằm ở máy đó, không đồng bộ sang máy khác): sang ngày mới form bắt đầu trống để nhập ngày mới, còn dữ liệu các ngày trước vẫn giữ trong lịch sử — bấm <b>Tải lịch sử</b> để tải lại file Excel từng ngày, từ đầu tháng đến hôm nay, trọn tháng, hoặc một ngày cụ thể. Tên file theo mẫu “KIỂM DIỆN 24.11.xlsx” — dùng dấu chấm thay dấu “/” vì tên file không dùng được dấu “/”.</p>
   </footer>
 </div>
 
@@ -390,9 +390,12 @@ function submitAttendance(){
   btn.textContent = "Đang nộp…";
   saveDraftNow(); /* lưu nháp ngay trên máy này trước khi gửi */
   var data = collect();
-  /* Gửi lại tất cả lớp đã nhập, kể cả lớp đã tự đồng bộ trước đó, để Sheet chắc chắn có bản mới nhất */
-  var jobs = Object.keys(data).map(function(r){
-    return apiPost(currentDate, ROW_TO_LOP[r], data[r]);
+  /* Gửi đủ cả 32 lớp: lớp đã nhập gửi lại dữ liệu đã nhập, kể cả lớp đã tự đồng bộ trước đó,
+     để Sheet chắc chắn có bản mới nhất; lớp chưa nhập gì cả thì gửi vắng 0 (v=0, vb=0, tên trống).
+     Tóm tắt bên dưới vẫn chỉ đếm lớp có dữ liệu thật (collectStats trên data của collect()). */
+  var jobs = ALL.map(function(c){
+    var rec = data[c.row];
+    return apiPost(currentDate, c.lop, rec || { e:"0", f:"", i:"0", j:"" });
   });
   Promise.all(jobs).then(function(results){
     submitting = false;
@@ -713,6 +716,12 @@ function hasAbsence(numRaw, nameRaw){
   var v = parseInt(numRaw, 10);
   return (!isNaN(v) && v !== 0) || (nameRaw || "").trim() !== "";
 }
+/* Lớp chưa được nhập gì cả: cả 4 ô (số vắng, tên HS vắng, vắng bán trú, tên HS vắng bán trú) đều trống */
+function isEmptyRec(rec){
+  if (!rec) return true;
+  return !String(rec.e || "").trim() && !String(rec.f || "").trim()
+      && !String(rec.i || "").trim() && !String(rec.j || "").trim();
+}
 
 function downloadBlob(blob, name){
   var url = URL.createObjectURL(blob);
@@ -739,12 +748,17 @@ function buildExcelBuffer(dateStr, data){
     ws.getCell("D37").value = { formula: "B37-E37" };
     ALL.forEach(function(c){
       var rec = (data && data[c.row]) || {e:"",f:"",i:"",j:""};
-      setNumOrBlank(ws.getCell("E"+c.row), rec.e);
+      /* Lớp chưa nhập gì cả: ghi số 0 vào ô Vắng và ô Vắng bán trú thay vì để trống.
+         Lớp đã nhập (dù chỉ 1 ô) thì giữ nguyên cách xuất như trước. */
+      var untouched = isEmptyRec(rec);
+      if (untouched) ws.getCell("E"+c.row).value = 0;
+      else setNumOrBlank(ws.getCell("E"+c.row), rec.e);
       /* Lớp không có vắng (số trống/0 và không có tên): ghi "/" canh giữa ô tên HS vắng */
       var fCell = ws.getCell("F"+c.row);
       if (hasAbsence(rec.e, rec.f)) setTextOrBlank(fCell, rec.f);
       else { fCell.value = "/"; fCell.alignment = Object.assign({}, fCell.alignment || {}, { horizontal: "center" }); }
-      setNumOrBlank(ws.getCell("I"+c.row), rec.i);
+      if (untouched) ws.getCell("I"+c.row).value = 0;
+      else setNumOrBlank(ws.getCell("I"+c.row), rec.i);
       var jCell = ws.getCell("J"+c.row);
       if (hasAbsence(rec.i, rec.j)) setTextOrBlank(jCell, rec.j);
       else { jCell.value = "/"; jCell.alignment = Object.assign({}, jCell.alignment || {}, { horizontal: "center" }); }
