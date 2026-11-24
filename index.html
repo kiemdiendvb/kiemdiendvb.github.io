@@ -347,18 +347,33 @@ function syncToApi(){
     var rows = {};
     Object.keys(cur).forEach(function(r){ rows[r] = true; });
     Object.keys(lastSynced).forEach(function(r){ rows[r] = true; });
-    var jobs = [];
+    var jobs = [], jobRows = []; /* jobRows: hàng (row) tương ứng song song với từng promise trong jobs */
     Object.keys(rows).forEach(function(r){
       if (!sameRec(cur[r], lastSynced[r])){
         var lop = ROW_TO_LOP[r];
-        if (lop) jobs.push(apiPost(currentDate, lop, cur[r] || { e:"", f:"", i:"", j:"" }));
+        if (lop){ jobs.push(apiPost(currentDate, lop, cur[r] || { e:"", f:"", i:"", j:"" })); jobRows.push(r); }
       }
     });
     if (!jobs.length) return;
-    Promise.all(jobs).then(function(){
-      lastSynced = JSON.parse(JSON.stringify(cur));
-      var d = new Date();
-      $saved.textContent = "Đã lưu chung lúc " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + " — mọi máy đều thấy.";
+    Promise.all(jobs).then(function(results){
+      var allOk = true;
+      results.forEach(function(ok, idx){
+        if (ok){
+          /* Chỉ đánh dấu lớp gửi thành công là đã đồng bộ */
+          var r = jobRows[idx];
+          if (cur[r]) lastSynced[r] = JSON.parse(JSON.stringify(cur[r]));
+          else delete lastSynced[r];
+        } else {
+          /* Lớp gửi lỗi: giữ nguyên lastSynced cũ để lần nhập sau tự thử lại */
+          allOk = false;
+        }
+      });
+      if (allOk){
+        var d = new Date();
+        $saved.textContent = "Đã lưu chung lúc " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + " — mọi máy đều thấy.";
+      } else {
+        $saved.textContent = "Chưa đồng bộ được — kiểm tra mạng rồi nhập tiếp, web sẽ tự thử lại.";
+      }
     });
   }, 500);
 }
@@ -665,6 +680,10 @@ function loadDraft(){
   if (subNote) $saved.textContent = subNote;
   /* Nạp thêm dữ liệu chung từ Sheet: chỉ điền vào lớp mà máy này đang để trống hoàn toàn, không ghi đè dữ liệu máy này đã nhập */
   apiGet(currentDate).then(function(apiData){
+    if (apiData === null){
+      /* Không tải được dữ liệu chung: báo rõ để người dùng biết số liệu đang thấy chỉ là của máy này */
+      $saved.textContent = "Không tải được dữ liệu chung — kiểm tra mạng rồi tải lại trang.";
+    }
     var conv = apiToCollect(apiData);
     if (Object.keys(conv).length){
       var filled = false;
