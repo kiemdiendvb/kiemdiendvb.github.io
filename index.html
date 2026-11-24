@@ -300,20 +300,39 @@ var API_URL = "https://script.google.com/macros/s/AKfycbzY_Sr_w7KZ79JGeI-pF0U6kS
 var ROW_TO_LOP = {}, LOP_TO_ROW = {};
 ALL.forEach(function(c){ ROW_TO_LOP[c.row] = c.lop; LOP_TO_ROW[c.lop] = c.row; });
 
+/* Hết 20 giây không phản hồi thì hủy yêu cầu, coi như lỗi — mọi lần gọi đều kết thúc, nút không kẹt */
+var API_TIMEOUT_MS = 20000;
+function apiFetch(url, opts){
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, API_TIMEOUT_MS);
+  opts = opts || {};
+  opts.signal = ctrl.signal;
+  return fetch(url, opts).then(function(r){
+    clearTimeout(timer);
+    return r;
+  }, function(e){
+    clearTimeout(timer);
+    throw e;
+  });
+}
 /* Đọc dữ liệu 1 ngày từ Sheet; trả object {lop:{v,n,vb,nb}} hoặc null khi lỗi */
 function apiGet(dateStr){
-  return fetch(API_URL + "?date=" + encodeURIComponent(dateStr))
+  return apiFetch(API_URL + "?date=" + encodeURIComponent(dateStr))
     .then(function(r){ return r.json(); })
     .then(function(j){ return (j && j.ok && j.data) ? j.data : null; })
     .catch(function(){ return null; });
 }
-/* Ghi 1 lớp của 1 ngày lên Sheet (upsert); không throw khi lỗi */
+/* Ghi 1 lớp của 1 ngày lên Sheet (upsert); chỉ trả true khi máy chủ xác nhận ok; không throw khi lỗi */
 function apiPost(dateStr, lop, rec){
-  return fetch(API_URL, {
+  return apiFetch(API_URL, {
     method: "POST",
     headers: { "Content-Type": "text/plain" },
     body: JSON.stringify({ date: dateStr, lop: lop, v: rec.e || "", n: rec.f || "", vb: rec.i || "", nb: rec.j || "" })
-  }).then(function(){ return true; }).catch(function(){ return false; });
+  }).then(function(r){
+    if (!r.ok) return false; /* lỗi máy chủ (500...) cũng coi là gửi lỗi */
+    return r.json().then(function(j){ return !!(j && j.ok === true); })
+      .catch(function(){ return false; });
+  }).catch(function(){ return false; });
 }
 function apiNumStr(v){ return (v === null || v === undefined) ? "" : String(v); }
 /* Chuyển dữ liệu API {lop:{v,n,vb,nb}} sang dạng collect() {row:{e,f,i,j}}; bỏ qua dòng trống hoàn toàn; "0" thành "" */
@@ -408,11 +427,22 @@ function submitAttendance(){
   /* Gửi đủ cả 32 lớp: lớp đã nhập gửi lại dữ liệu đã nhập, kể cả lớp đã tự đồng bộ trước đó,
      để Sheet chắc chắn có bản mới nhất; lớp chưa nhập gì cả thì gửi vắng 0 (v=0, vb=0, tên trống).
      Tóm tắt bên dưới vẫn chỉ đếm lớp có dữ liệu thật (collectStats trên data của collect()). */
-  var jobs = ALL.map(function(c){
-    var rec = data[c.row];
-    return apiPost(currentDate, c.lop, rec || { e:"0", f:"", i:"0", j:"" });
-  });
-  Promise.all(jobs).then(function(results){
+  /* Gửi theo từng đợt 5 lớp (đợt sau chờ đợt trước xong) thay vì 32 cùng lúc,
+     để không vượt giới hạn xử lý đồng thời của Apps Script */
+  var BATCH_SIZE = 5;
+  var submitAll = Promise.resolve([]);
+  for (var b = 0; b < ALL.length; b += BATCH_SIZE){
+    (function(batch){
+      submitAll = submitAll.then(function(prev){
+        var jobs = batch.map(function(c){
+          var rec = data[c.row];
+          return apiPost(currentDate, c.lop, rec || { e:"0", f:"", i:"0", j:"" });
+        });
+        return Promise.all(jobs).then(function(res){ return prev.concat(res); });
+      });
+    })(ALL.slice(b, b + BATCH_SIZE));
+  }
+  submitAll.then(function(results){
     submitting = false;
     btn.disabled = false;
     btn.textContent = "✓ Nộp điểm danh";
