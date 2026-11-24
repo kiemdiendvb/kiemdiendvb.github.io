@@ -828,13 +828,33 @@ function exportExcel(){
   if (!currentDate){ toast("Chưa xác định được ngày hôm nay — thử tải lại trang."); return; }
   exporting = true;
   var btns = [document.getElementById("btnExportBottom")];
-  btns.forEach(function(b){ b.disabled = true; b.textContent = "Đang tạo file…"; });
+  btns.forEach(function(b){ b.disabled = true; b.textContent = "Đang lấy dữ liệu mới…"; });
 
-  buildExcelBuffer(currentDate, collect()).then(function(buf){
-    var blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    var name = excelNameFor(currentDate);
-    downloadBlob(blob, name);
-    toast("Đã xuất file " + name);
+  /* Trước khi tạo file: lấy dữ liệu chung mới nhất từ Sheet rồi gộp vào form,
+     để file không thiếu số liệu các lớp khác mới nhập sau lần tải trang gần nhất.
+     Lớp nào Sheet có dữ liệu thì dùng dữ liệu Sheet (mới nhất); lớp nào Sheet
+     chưa có thì giữ nguyên số liệu máy này đã nhập, tránh mất số chưa kịp đồng bộ. */
+  apiGet(currentDate).then(function(apiData){
+    var noShared = (apiData === null);
+    if (!noShared){
+      var conv = apiToCollect(apiData);
+      ALL.forEach(function(c){
+        var rec = conv[c.row];
+        if (!rec) return;
+        var inp = inputs[c.row];
+        inp.e.value = rec.e || ""; inp.f.value = rec.f || ""; inp.i.value = rec.i || ""; inp.j.value = rec.j || "";
+      });
+      saveDraftNow();
+      recalc();
+    }
+    btns.forEach(function(b){ b.textContent = "Đang tạo file…"; });
+    return buildExcelBuffer(currentDate, collect()).then(function(buf){
+      var blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var name = excelNameFor(currentDate);
+      downloadBlob(blob, name);
+      if (noShared) toast("Không lấy được dữ liệu chung — file chỉ có dữ liệu của máy này.");
+      else toast("Đã xuất file " + name);
+    });
   }).catch(function(err){
     toast("Xuất file chưa được: " + (err && err.message ? err.message : "lỗi không rõ"));
   }).then(function(){
