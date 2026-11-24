@@ -291,6 +291,82 @@ var TEST_MODE = true;
 var TEST_TODAY_STR = "2026-11-24"; /* Thứ Ba */
 var DRAFT_KEY = "kiemdien-nhap-hien-tai"; /* khóa nháp đơn cũ — chỉ còn dùng để chuyển sang lịch sử khi nâng cấp */
 var HISTORY_PREFIX = "kiemdien-lich-su-"; /* khóa lịch sử theo ngày: kiemdien-lich-su-YYYY-MM-DD */
+
+/* ===== Đồng bộ với Sheet chung "Dữ liệu Kiểm diện ĐVB" qua API Apps Script ===== */
+var API_URL = "https://script.google.com/macros/s/AKfycbzY_Sr_w7KZ79JGeI-pF0U6kSsfRII90HiSLOYO-AFoyEtKvMmkpagH7Y29-p5DpQd5sQ/exec";
+var ROW_TO_LOP = {}, LOP_TO_ROW = {};
+ALL.forEach(function(c){ ROW_TO_LOP[c.row] = c.lop; LOP_TO_ROW[c.lop] = c.row; });
+
+/* Đọc dữ liệu 1 ngày từ Sheet; trả object {lop:{v,n,vb,nb}} hoặc null khi lỗi */
+function apiGet(dateStr){
+  return fetch(API_URL + "?date=" + encodeURIComponent(dateStr))
+    .then(function(r){ return r.json(); })
+    .then(function(j){ return (j && j.ok && j.data) ? j.data : null; })
+    .catch(function(){ return null; });
+}
+/* Ghi 1 lớp của 1 ngày lên Sheet (upsert); không throw khi lỗi */
+function apiPost(dateStr, lop, rec){
+  return fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: JSON.stringify({ date: dateStr, lop: lop, v: rec.e || "", n: rec.f || "", vb: rec.i || "", nb: rec.j || "" })
+  }).then(function(){ return true; }).catch(function(){ return false; });
+}
+function apiNumStr(v){ return (v === null || v === undefined) ? "" : String(v); }
+/* Chuyển dữ liệu API {lop:{v,n,vb,nb}} sang dạng collect() {row:{e,f,i,j}}; bỏ qua dòng trống hoàn toàn; "0" thành "" */
+function apiToCollect(apiData){
+  var out = {};
+  if (!apiData) return out;
+  Object.keys(apiData).forEach(function(lop){
+    var row = LOP_TO_ROW[lop];
+    if (row === undefined) return;
+    var d = apiData[lop] || {};
+    var rec = { e: apiNumStr(d.v), f: d.n || "", i: apiNumStr(d.vb), j: d.nb || "" };
+    if (rec.e === "0") rec.e = "";
+    if (rec.i === "0") rec.i = "";
+    if (!rec.e && !rec.f && !rec.i && !rec.j) return;
+    out[row] = rec;
+  });
+  return out;
+}
+var lastSynced = {}; /* bản đã đồng bộ lên Sheet gần nhất, dạng collect() */
+function sameRec(a, b){
+  a = a || { e:"", f:"", i:"", j:"" };
+  b = b || { e:"", f:"", i:"", j:"" };
+  return a.e === b.e && a.f === b.f && a.i === b.i && a.j === b.j;
+}
+var syncTimer = null;
+function syncToApi(){
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(function(){
+    if (!currentDate) return;
+    var cur = collect();
+    var rows = {};
+    Object.keys(cur).forEach(function(r){ rows[r] = true; });
+    Object.keys(lastSynced).forEach(function(r){ rows[r] = true; });
+    var jobs = [];
+    Object.keys(rows).forEach(function(r){
+      if (!sameRec(cur[r], lastSynced[r])){
+        var lop = ROW_TO_LOP[r];
+        if (lop) jobs.push(apiPost(currentDate, lop, cur[r] || { e:"", f:"", i:"", j:"" }));
+      }
+    });
+    if (!jobs.length) return;
+    Promise.all(jobs).then(function(){
+      lastSynced = JSON.parse(JSON.stringify(cur));
+      var d = new Date();
+      $saved.textContent = "Đã lưu chung lúc " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + " — mọi máy đều thấy.";
+    });
+  }, 500);
+}
+/* Dữ liệu lịch sử 1 ngày: ưu tiên Sheet chung, không có thì lấy localStorage */
+function getHistoryDataAsync(dateStr){
+  return apiGet(dateStr).then(function(apiData){
+    var conv = apiToCollect(apiData);
+    if (Object.keys(conv).length) return conv;
+    return getHistoryData(dateStr);
+  });
+}
 var OPEN_MIN = 5*60;        /* mở nhập lúc 5:00 sáng */
 var LOCK_MIN = 8*60 + 10;   /* khóa lúc 8:10 sáng */
 var currentDate = "";       /* ngày hôm nay theo giờ Việt Nam, dạng YYYY-MM-DD */
@@ -493,6 +569,7 @@ function saveDraft(){
       localStorage.setItem(historyKey(currentDate), JSON.stringify({ date: currentDate, data: collect() }));
       var d = new Date();
       $saved.textContent = "Đã tự lưu trên máy này lúc "+pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds())+" — tải lại trang vẫn còn, ngày cũ xem ở nút Tải lịch sử.";
+      syncToApi();
     } catch(e){ $saved.textContent = ""; }
   }, 300);
 }
@@ -525,6 +602,29 @@ function loadDraft(){
   if (!has) saveDraftNow();
   $saved.textContent = has ? "Đã mở lại dữ liệu đã nhập của ngày này trên máy này." : "";
   recalc();
+  /* Nạp thêm dữ liệu chung từ Sheet: chỉ điền vào lớp mà máy này đang để trống hoàn toàn, không ghi đè dữ liệu máy này đã nhập */
+  apiGet(currentDate).then(function(apiData){
+    var conv = apiToCollect(apiData);
+    if (Object.keys(conv).length){
+      var filled = false;
+      ALL.forEach(function(c){
+        var rec = conv[c.row];
+        if (!rec) return;
+        var inp = inputs[c.row];
+        if (!inp.e.value && !inp.f.value && !inp.i.value && !inp.j.value){
+          inp.e.value = rec.e || ""; inp.f.value = rec.f || ""; inp.i.value = rec.i || ""; inp.j.value = rec.j || "";
+          filled = true;
+        }
+      });
+      lastSynced = JSON.parse(JSON.stringify(conv));
+      if (filled){
+        saveDraftNow();
+        $saved.textContent = "Đã đồng bộ dữ liệu chung từ Sheet.";
+        recalc();
+      }
+    }
+    syncToApi();
+  });
 }
 var toastTimer = null;
 function toast(msg){
@@ -647,20 +747,26 @@ function downloadHistoryZip(mode){
   if (!currentDate){ toast("Chưa xác định được ngày hôm nay — thử tải lại trang."); return; }
   var r = currentMonthRange();
   var to = (mode === "full") ? r.endOfMonth : currentDate;
-  var days = schoolDaysBetween(r.start, to).filter(function(ds){ return getHistoryData(ds) !== null; });
-  if (!days.length){ toast("Chưa có dữ liệu nào trong tháng này."); return; }
+  var allDays = schoolDaysBetween(r.start, to);
   setHistBusy(true);
-  toast("Đang tạo file ZIP cho " + days.length + " ngày…");
-  var zip = new JSZip();
-  var chain = Promise.resolve();
-  days.forEach(function(ds){
-    chain = chain.then(function(){ return buildExcelBuffer(ds, getHistoryData(ds)); })
-      .then(function(buf){ zip.file(excelNameFor(ds), buf); });
-  });
-  chain.then(function(){ return zip.generateAsync({ type: "blob" }); }).then(function(blob){
-    var name = "KIỂM DIỆN tháng " + pad(r.month) + "-" + r.year + ".zip";
-    downloadBlob(blob, name);
-    toast("Đã tải " + name + " (" + days.length + " ngày).");
+  toast("Đang lấy dữ liệu lịch sử…");
+  Promise.all(allDays.map(function(ds){
+    return getHistoryDataAsync(ds).then(function(data){ return { ds: ds, data: data }; });
+  })).then(function(results){
+    var entries = results.filter(function(x){ return x.data !== null; });
+    if (!entries.length){ toast("Chưa có dữ liệu nào trong tháng này."); return null; }
+    toast("Đang tạo file ZIP cho " + entries.length + " ngày…");
+    var zip = new JSZip();
+    var chain = Promise.resolve();
+    entries.forEach(function(x){
+      chain = chain.then(function(){ return buildExcelBuffer(x.ds, x.data); })
+        .then(function(buf){ zip.file(excelNameFor(x.ds), buf); });
+    });
+    return chain.then(function(){ return zip.generateAsync({ type: "blob" }); }).then(function(blob){
+      var name = "KIỂM DIỆN tháng " + pad(r.month) + "-" + r.year + ".zip";
+      downloadBlob(blob, name);
+      toast("Đã tải " + name + " (" + entries.length + " ngày).");
+    });
   }).catch(function(err){
     toast("Tải lịch sử chưa được: " + (err && err.message ? err.message : "lỗi không rõ"));
   }).then(function(){ setHistBusy(false); });
@@ -668,15 +774,16 @@ function downloadHistoryZip(mode){
 function downloadSpecificDay(dateStr){
   if (!dateStr || histBusy) return;
   if (typeof ExcelJS === "undefined"){ toast("Chưa tải được thư viện Excel — kiểm tra mạng rồi thử lại."); return; }
-  var data = getHistoryData(dateStr);
-  var had = data !== null;
   setHistBusy(true);
-  buildExcelBuffer(dateStr, had ? data : {}).then(function(buf){
-    var blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    var name = excelNameFor(dateStr);
-    downloadBlob(blob, name);
-    if (had) toast("Đã tải file " + name);
-    else toast("Ngày này chưa có dữ liệu nhập — file tải về là mẫu trống.");
+  getHistoryDataAsync(dateStr).then(function(data){
+    var had = data !== null;
+    return buildExcelBuffer(dateStr, had ? data : {}).then(function(buf){
+      var blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var name = excelNameFor(dateStr);
+      downloadBlob(blob, name);
+      if (had) toast("Đã tải file " + name);
+      else toast("Ngày này chưa có dữ liệu nhập — file tải về là mẫu trống.");
+    });
   }).catch(function(err){
     toast("Tải file chưa được: " + (err && err.message ? err.message : "lỗi không rõ"));
   }).then(function(){ setHistBusy(false); });
